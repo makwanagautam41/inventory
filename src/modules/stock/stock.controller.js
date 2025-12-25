@@ -44,3 +44,27 @@ export const stockOut = async (req, res, next) => {
     next(err);
   }
 };
+
+export const getStockHistory = async (req, res, next) => {
+  try {
+    const { productId, type } = req.query;
+
+    const filter = {};
+
+    if (productId) {
+      filter.product = productId;
+    }
+
+    if (type) {
+      filter.type = type.toUpperCase();
+    }
+
+    const history = await StockHistory.find(filter)
+      .populate("product", "name sku")
+      .sort({ createdAt: -1 });
+
+    res.json(history);
+  } catch (err) {
+    next(err);
+  }
+};
