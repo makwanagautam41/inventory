@@ -1,6 +1,7 @@
 import { Invoice } from "../invoice/invoice.model.js";
 import { Product } from "../product/product.model.js";
 import { StockHistory } from "../stock/stockHistory.model.js";
+import { getNextInvoiceNumber } from "../invoice/invoice.utils.js";
 
 const applyFinalizeLogic = async (invoice) => {
   for (const item of invoice.items) {
@@ -35,10 +36,12 @@ const applyFinalizeLogic = async (invoice) => {
 export const createInvoice = async (req, res, next) => {
   try {
     const { status } = req.body;
+    const invoiceNumber = await getNextInvoiceNumber();
 
     const invoice = await Invoice.create({
       ...req.body,
       status: "DRAFT",
+      invoiceNumber,
     });
 
     if (status === "FINALIZED") {
