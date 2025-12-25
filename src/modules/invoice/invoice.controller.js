@@ -3,6 +3,45 @@ import { Product } from "../product/product.model.js";
 import { StockHistory } from "../stock/stockHistory.model.js";
 import { getNextInvoiceNumber } from "../invoice/invoice.utils.js";
 
+const calculateInvoiceTotals = async (items) => {
+  let subtotal = 0;
+  const calculatedItems = [];
+
+  for (const item of items) {
+    const product = await Product.findById(item.product);
+
+    if (!product) {
+      throw new Error("Product not found");
+    }
+
+    if (item.quantity <= 0) {
+      throw new Error("Quantity must be greater than zero");
+    }
+
+    const itemTotal = product.price * item.quantity;
+    subtotal += itemTotal;
+
+    calculatedItems.push({
+      product: product._id,
+      quantity: item.quantity,
+      price: product.price,
+      total: itemTotal,
+    });
+  }
+
+  const tax = 0;
+  const discount = 0;
+  const grandTotal = subtotal + tax - discount;
+
+  return {
+    items: calculatedItems,
+    subtotal,
+    tax,
+    discount,
+    grandTotal,
+  };
+};
+
 const applyFinalizeLogic = async (invoice) => {
   for (const item of invoice.items) {
     const product = await Product.findById(item.product);
@@ -35,13 +74,23 @@ const applyFinalizeLogic = async (invoice) => {
 
 export const createInvoice = async (req, res, next) => {
   try {
-    const { status } = req.body;
+    const { items, status } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "Invoice items are required" });
+    }
+
+    const totals = await calculateInvoiceTotals(items);
     const invoiceNumber = await getNextInvoiceNumber();
 
     const invoice = await Invoice.create({
-      ...req.body,
-      status: "DRAFT",
       invoiceNumber,
+      items: totals.items,
+      subtotal: totals.subtotal,
+      tax: totals.tax,
+      discount: totals.discount,
+      grandTotal: totals.grandTotal,
+      status: "DRAFT",
     });
 
     if (status === "FINALIZED") {
