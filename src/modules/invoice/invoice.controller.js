@@ -72,6 +72,50 @@ const applyFinalizeLogic = async (invoice) => {
   return invoice;
 };
 
+export const cancelInvoice = async (req, res, next) => {
+  try {
+    const { invoiceId } = req.params;
+
+    const invoice = await Invoice.findById(invoiceId);
+
+    if (!invoice) {
+      return res.status(404).json({ message: "Invoice not found" });
+    }
+
+    if (invoice.status !== "FINALIZED") {
+      return res.status(400).json({
+        message: "Only finalized invoices can be cancelled",
+      });
+    }
+
+    for (const item of invoice.items) {
+      const product = await Product.findById(item.product);
+
+      if (!product) {
+        throw new Error("Product not found");
+      }
+
+      product.quantity += item.quantity;
+      await product.save();
+
+      await StockHistory.create({
+        product: product._id,
+        type: "IN",
+        quantity: item.quantity,
+        referenceType: "CANCEL",
+        referenceId: invoice._id,
+      });
+    }
+
+    invoice.status = "CANCELLED";
+    await invoice.save();
+
+    res.json(invoice);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const createInvoice = async (req, res, next) => {
   try {
     const { items, status } = req.body;
