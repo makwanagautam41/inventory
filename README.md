@@ -25,6 +25,9 @@ POST   /api/invoices/create
 POST   /api/invoices/finalize/:invoiceId
 → Finalize draft invoice and deduct inventory
 
+POST   /api/invoices/cancel/:invoiceId
+→ Cancel the invoice and update the inventory
+
 GET    /api/invoices
 → Get all invoices
 
@@ -33,16 +36,33 @@ GET    /api/invoices?type=draft
 
 GET    /api/invoices?type=finalized
 → Get only finalized invoices
+
+GET    /api/invoices?type=cancelled
+→ Get only finalized invoices
 ```
 
 
+
+---
+
 ## 🧠 How This Backend Works (Detailed Explanation)
+
+This backend is built around **four core business concepts**:
+
+1. Products
+2. Stock
+3. Invoices
+4. Stock History (Audit Trail)
+
+Each concept has **strict rules** to ensure data integrity.
+
+---
 
 ## 1️⃣ Product: What You Sell
 
 A **Product** represents an item that exists in your shop catalog.
 
-Example:
+Examples:
 - Keyboard
 - Mouse
 - Monitor
@@ -52,19 +72,19 @@ Example:
 - A product only defines:
   - Name
   - Price
-  - SKU (unique identifier)
+  - SKU (unique)
   - Low stock limit
 - Product quantity always starts at `0`
 
 ### Why This Design?
-In real shops, you:
-- First define what items you sell
-- Later purchase stock
+In real shops:
+- You define products first
+- You purchase stock later
 
 This separation prevents:
 - Fake inventory
 - Incorrect stock counts
-- Manual mistakes
+- Manual errors
 
 ---
 
@@ -78,8 +98,9 @@ It changes ONLY through:
 - Stock IN
 - Stock OUT
 - Invoice Finalization
+- Invoice Cancellation (rollback)
 
-This ensures **inventory accuracy**.
+This guarantees inventory accuracy.
 
 ---
 
@@ -95,7 +116,7 @@ Stock IN is used when inventory comes **into** the shop.
 ### What Happens Internally
 1. Product is fetched
 2. Quantity is increased
-3. StockHistory record is created (type = IN)
+3. StockHistory entry is created (type = IN)
 
 Stock IN immediately affects inventory.
 
@@ -115,11 +136,11 @@ Stock OUT is used for **non-sale reductions**.
 - It is NOT a sale
 - It does NOT involve invoices
 
-### What Happens Internally
+### Internal Flow
 1. Product is fetched
 2. Stock availability is validated
 3. Quantity is reduced
-4. StockHistory record is created (type = OUT)
+4. StockHistory entry is created (type = OUT)
 
 ---
 
@@ -127,71 +148,118 @@ Stock OUT is used for **non-sale reductions**.
 
 Invoices represent **sales transactions**.
 
-Invoices have two states:
+Invoices have three states:
 - DRAFT
 - FINALIZED
+- CANCELLED
+
+---
 
 ### Draft Invoice
 - Created when customer items are selected
 - Does NOT affect stock
-- Can be edited or finalized later
+- Can be finalized later
 
-### Why Draft Exists
-In real shops:
-- Billing is prepared first
-- Stock should change only after confirmation
+This mirrors real billing workflows.
 
 ---
 
-## 6️⃣ Invoice Finalization: Actual Sale
+## 6️⃣ Backend-Controlled Invoice Calculations
+
+Frontend sends:
+- productId
+- quantity
+
+Backend calculates:
+- Item price
+- Item total
+- Subtotal
+- Tax
+- Discount
+- Grand total
+
+This prevents:
+- Price manipulation
+- Calculation errors
+- Security risks
+
+The backend is the **only authority for money**.
+
+---
+
+## 7️⃣ Invoice Finalization: Actual Sale
 
 Finalizing an invoice is the **only place where sales reduce stock**.
 
 ### What Happens on Finalization
 1. Invoice is validated
-2. Each product’s stock is checked
+2. Product stock is checked
 3. Product quantities are reduced
-4. StockHistory records are created:
+4. StockHistory entries are created:
    - type = OUT
    - referenceType = INVOICE
 5. Invoice status becomes FINALIZED
 
 If stock is insufficient:
-- Finalization is rejected
+- Finalization fails
 - Inventory remains unchanged
 
 ---
 
-## 7️⃣ Stock History: Inventory Memory (Audit Trail)
+## 8️⃣ Invoice Cancellation & Rollback
 
-StockHistory is the **most important part** of this backend.
+Invoice cancellation completes the **sales lifecycle**.
 
-It records:
-- Every Stock IN
-- Every Stock OUT
-- Every Invoice-based stock reduction
+### Rules
+- Only FINALIZED invoices can be cancelled
+- Draft invoices do not affect stock
+- Cancelled invoices cannot be finalized again
 
-### What Each Record Answers
+### What Happens on Cancellation
+1. Invoice is validated
+2. Product quantities are restored
+3. StockHistory entries are created:
+   - type = IN
+   - referenceType = CANCEL
+4. Invoice status becomes CANCELLED
+
+This guarantees:
+- No inventory corruption
+- Full auditability
+
+---
+
+## 9️⃣ Stock History: Inventory Memory (Audit Trail)
+
+StockHistory records **every stock movement**.
+
+It tracks:
+- Stock IN
+- Stock OUT
+- Invoice sales
+- Invoice cancellations
+
+Each record answers:
 - Which product?
-- What action? (IN / OUT)
+- What happened?
 - How much quantity?
 - Why did it happen?
 - When did it happen?
 
-StockHistory is:
+### Rules
 - Immutable
 - Never edited
 - Never deleted
 
 ---
 
-## 8️⃣ Why Stock History Is Critical
+## 🔍 Why Stock History Is Critical
 
 StockHistory allows you to:
 - Audit inventory
-- Debug stock issues
+- Debug stock mismatches
 - Verify sales
-- Build reports
+- Generate reports
 - Prove inventory changes
 
 Products show the **current state**  
